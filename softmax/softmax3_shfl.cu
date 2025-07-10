@@ -1,6 +1,14 @@
+#include <torch/extension.h>
+#include <stdio.h>
+#include <c10/cuda/CUDAException.h>
 #include <cfloat>
 
-#define CEIL_DIV(x, y) (((x) + (y) - 1) / (y))
+#define CHECK_CUDA(x) TORCH_CHECK(x.device().is_cuda(), #x " must be a CUDA tensor")
+#define CHECK_CONTIGUOUS(x) TORCH_CHECK(x.is_contiguous(), #x " must be contiguous")
+#define CHECK_INPUT(x) CHECK_CUDA(x); CHECK_CONTIGUOUS(x)
+
+inline __device__ __host__ unsigned int cdiv(unsigned int a, unsigned int b) { return (a + b - 1) / b;}
+
 #define WARP_SIZE 32
 
 __global__ void softmax3_shfl_kernel(const float* x, float* y, int rows, int cols) {
@@ -21,19 +29,6 @@ __global__ void softmax3_shfl_kernel(const float* x, float* y, int rows, int col
         }
         local_row_sum += __expf(x_val - local_row_max);
     }
-    // smem[tid] = local_row_max;
-    // __syncthreads();
-
-    // for (int s = block_size >> 1; s > 0; s >>= 1) {
-    //     if (tid < s) {
-    //         // smem[tid] = fmaxf(smem[tid], smem[tid + s]);
-    //         if (smem[tid + s] > smem[tid]) {
-    //             smem[tid] = smem[tid + s];
-    //         }
-    //     }
-    //     __syncthreads();
-    // }
-    // float global_row_max = smem[0];
 
     float val = local_row_max;
     for (int s = WARP_SIZE >> 1; s > 0; s >>= 1) {
@@ -45,7 +40,7 @@ __global__ void softmax3_shfl_kernel(const float* x, float* y, int rows, int col
     __syncthreads();
     if (block_size > WARP_SIZE) {
         if (tid < WARP_SIZE) {
-            val = tid < CEIL_DIV(block_size, WARP_SIZE) ? smem[tid] : -FLT_MAX;
+            val = tid < cdiv(block_size, WARP_SIZE) ? smem[tid] : -FLT_MAX;
             for (int s = WARP_SIZE >> 1; s > 0; s >>= 1) {
                 val = fmaxf(val, __shfl_down_sync(0xffffffff, val, s));
             }
@@ -54,17 +49,6 @@ __global__ void softmax3_shfl_kernel(const float* x, float* y, int rows, int col
     }
     __syncthreads();
     float global_row_max = smem[0];
-
-    // smem[tid] = local_row_sum * __expf(local_row_max - global_row_max);
-    // __syncthreads();
-
-    // for (int s = block_size >> 1; s > 0; s >>= 1) {
-    //     if (tid < s) {
-    //         smem[tid] += smem[tid + s];
-    //     }
-    //     __syncthreads();
-    // }
-    // float global_row_sum = smem[0];
 
     val = local_row_sum * __expf(local_row_max - global_row_max);
     for (int s = WARP_SIZE >> 1; s > 0; s >>= 1) {
@@ -76,7 +60,7 @@ __global__ void softmax3_shfl_kernel(const float* x, float* y, int rows, int col
     __syncthreads();
     if (block_size > WARP_SIZE) {
         if (tid < WARP_SIZE) {
-            val = tid < CEIL_DIV(block_size, WARP_SIZE) ? smem[tid] : 0.0;
+            val = tid < cdiv(block_size, WARP_SIZE) ? smem[tid] : 0.0;
             for (int s = WARP_SIZE >> 1; s > 0; s >>= 1) {
                 val += __shfl_down_sync(0xffffffff, val, s);
             }
