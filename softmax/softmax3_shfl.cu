@@ -11,7 +11,7 @@ inline __device__ __host__ unsigned int cdiv(unsigned int a, unsigned int b) { r
 
 #define WARP_SIZE 32
 
-__global__ void softmax3_shfl_kernel(const float* x, float* y, int rows, int cols) {
+__global__ void softmax_shfl_kernel(const float* x, float* y, int rows, int cols) {
     extern __shared__ float smem[];
 
     int tid = threadIdx.x;
@@ -87,7 +87,7 @@ uint32_t next_power_of_two(uint32_t v) {
     return v;
 }
 
-torch::Tensor softmax3_shfl(const torch::Tensor& x) {
+torch::Tensor softmax(const torch::Tensor& x) {
     auto x_flatten = x.reshape({-1, x.size(-1)});
     auto y = torch::empty_like(x_flatten);
     auto rows = x_flatten.size(0);
@@ -96,7 +96,7 @@ torch::Tensor softmax3_shfl(const torch::Tensor& x) {
     dim3 block(block_size);
     dim3 grid(rows);
     auto smem_size = block_size * sizeof(float);
-    softmax3_shfl_kernel<<<grid, block, smem_size>>>(x_flatten.data_ptr<float>(), y.data_ptr<float>(), rows, cols);
+    softmax_shfl_kernel<<<grid, block, smem_size>>>(x_flatten.data_ptr<float>(), y.data_ptr<float>(), rows, cols);
     C10_CUDA_KERNEL_LAUNCH_CHECK();
     return y.view_as(x);
 }

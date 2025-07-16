@@ -7,7 +7,7 @@
 #define CHECK_CONTIGUOUS(x) TORCH_CHECK(x.is_contiguous(), #x " must be contiguous")
 #define CHECK_INPUT(x) CHECK_CUDA(x); CHECK_CONTIGUOUS(x)
 
-__global__ void softmax2_kernel(const float* x, float* y, int rows, int cols) {
+__global__ void softmax_kernel(const float* x, float* y, int rows, int cols) {
     extern __shared__ float smem[];
 
     int tid = threadIdx.x;
@@ -64,7 +64,7 @@ uint32_t next_power_of_two(uint32_t v) {
     return v;
 }
 
-torch::Tensor softmax2(const torch::Tensor& x) {
+torch::Tensor softmax(const torch::Tensor& x) {
     auto x_flatten = x.reshape({-1, x.size(-1)});
     auto y = torch::empty_like(x_flatten);
     auto rows = x_flatten.size(0);
@@ -73,7 +73,7 @@ torch::Tensor softmax2(const torch::Tensor& x) {
     dim3 block(block_size);
     dim3 grid(rows);
     auto smem_size = block_size * sizeof(float);
-    softmax2_kernel<<<grid, block, smem_size>>>(x_flatten.data_ptr<float>(), y.data_ptr<float>(), rows, cols);
+    softmax_kernel<<<grid, block, smem_size>>>(x_flatten.data_ptr<float>(), y.data_ptr<float>(), rows, cols);
     C10_CUDA_KERNEL_LAUNCH_CHECK();
     return y.view_as(x);
 }
