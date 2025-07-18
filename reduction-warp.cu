@@ -50,8 +50,8 @@ __global__ void reduction_kernel(const float* input, float* output, int N, int s
 
 // input, output are device pointers
 void solve(const float* input, float* output, int N) {
-    auto threads_per_block = 512;
-    auto stride_factor = 8;
+    auto threads_per_block = 1024;
+    auto stride_factor = 64;
     dim3 threads(threads_per_block);
     dim3 blocks(cdiv(N, threads_per_block * stride_factor));
     auto smem_size = threads_per_block * sizeof(float);
